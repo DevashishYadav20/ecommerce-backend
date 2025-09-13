@@ -29,18 +29,34 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* -------------------- CORS (must be before routes) -------------------- */
-const allowedOrigins = [
+// Allow your dev origin and your live GitHub Pages origin
+const ALLOWED_ORIGINS = new Set([
   'http://localhost:5173',
-  'https://devashishyadav20.github.io', // your GitHub Pages origin
-];
+  'https://devashishyadav20.github.io',
+]);
+
+// Tiny log so we can see what Origin Render receives (helpful when debugging)
+app.use((req, _res, next) => {
+  const o = req.headers.origin || '(no-origin)';
+  console.log('CORS origin:', o, req.method, req.path);
+  next();
+});
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      // allow server-to-server/health checks with no Origin
+      // Allow server-to-server/health checks/cURL with no Origin header
       if (!origin) return cb(null, true);
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error('Not allowed by CORS'));
+
+      // Exact allow-list
+      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+
+      // (Optional safety) allow your exact GitHub Pages host via regex
+      if (/^https:\/\/devashishyadav20\.github\.io$/.test(origin)) {
+        return cb(null, true);
+      }
+
+      return cb(new Error('Not allowed by CORS: ' + origin));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -48,14 +64,14 @@ app.use(
   })
 );
 
-// handle preflight quickly
+// Ensure preflight OPTIONS always returns the right headers
 app.options('*', cors());
 
 /* -------------------- Common middleware -------------------- */
 app.use(express.json());
 
 /* -------------------- Health check -------------------- */
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
@@ -72,9 +88,10 @@ app.use('/api/payment-summary', paymentSummaryRoutes);
 
 /* -------------------- Error handler -------------------- */
 // eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  const status = err.message === 'Not allowed by CORS' ? 403 : 500;
+app.use((err, _req, res, _next) => {
+  console.error(err.stack || err);
+  const status =
+    String(err?.message || '').startsWith('Not allowed by CORS') ? 403 : 500;
   res.status(status).json({ error: err.message || 'Something went wrong!' });
 });
 
